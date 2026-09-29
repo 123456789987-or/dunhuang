@@ -1,117 +1,904 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Holographic Candlestick · 全息烛台</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🕯</text></svg>">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="description" content="基于 MediaPipe 手势识别与 Three.js 的 3D 全息烛台交互界面 · 双手缩放 / 单掌移动 / 鼠标兜底">
+<title>全息烛台 · Holographic Candlestick</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='9' y='8' width='6' height='13' rx='1.5' fill='%23ffd9a0'/%3E%3Cpath d='M12 1.5c2.4 2.8 3.4 4.6 3.4 6.1a3.4 3.4 0 0 1-6.8 0c0-1.5 1-3.3 3.4-6.1z' fill='%23ffc46b'/%3E%3Cpath d='M12 2.5c1.6 2 2.3 3.2 2.3 4.2a2.3 2.3 0 0 1-4.6 0c0-1 .7-2.2 2.3-4.2z' fill='%237ee7ff'/%3E%3C/svg%3E">
 <style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  html,body { width:100%; height:100%; overflow:hidden; background:#000;
-    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-    color:#e8d9b8; }
-  #webcam { position:fixed; inset:0; width:100%; height:100%; object-fit:cover; transform:scaleX(-1); opacity:0.55; z-index:1; }
-  #dim-overlay { position:fixed; inset:0; z-index:2; background:#000; pointer-events:none; opacity:0.45; }
-  #scene-canvas { position:fixed; inset:0; z-index:3; display:block; }
-  #hand-canvas { position:fixed; inset:0; z-index:4; pointer-events:none; }
-  .scanlines { position:fixed; inset:0; z-index:5; pointer-events:none; background:repeating-linear-gradient(0deg, transparent 0px, transparent 2px, rgba(255,200,120,0.015) 3px, transparent 4px); mix-blend-mode:screen; }
-  .topbar { position:fixed; top:12px; left:14px; z-index:10; user-select:none; pointer-events:none; }
-  .topbar .title { font-size:9px; letter-spacing:0.3em; font-weight:600; color:#f0c878; text-transform:uppercase; text-shadow:0 0 10px rgba(240,180,80,0.4); }
-  .topbar .sub { font-size:7px; letter-spacing:0.18em; color:rgba(232,217,184,0.4); margin-top:2px; text-transform:uppercase; }
-  .status { position:fixed; top:14px; right:14px; z-index:10; display:flex; align-items:center; gap:5px; font-size:7px; letter-spacing:0.14em; color:rgba(232,217,184,0.55); user-select:none; pointer-events:none; }
-  .status .dot { width:5px; height:5px; border-radius:50%; background:#444; transition:background .2s, box-shadow .2s; }
-  .status.active .dot { background:#7fe08a; box-shadow:0 0 8px rgba(127,224,138,0.8); }
-  .status.mode { color:#f0c878; }
-  .hints { position:fixed; left:50%; bottom:64px; transform:translateX(-50%); z-index:10; font-size:7px; letter-spacing:0.22em; color:rgba(232,217,184,0.35); text-transform:uppercase; user-select:none; pointer-events:none; white-space:nowrap; }
-  .panel { position:fixed; left:50%; bottom:14px; transform:translateX(-50%); z-index:10; display:flex; align-items:center; gap:12px; padding:7px 12px; background:rgba(12,9,6,0.65); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); border:1px solid rgba(240,200,120,0.15); border-radius:10px; }
-  .panel .group { display:flex; align-items:center; gap:7px; }
-  .panel label { font-size:7px; letter-spacing:0.14em; color:rgba(232,217,184,0.5); text-transform:uppercase; white-space:nowrap; }
-  .panel input[type=range] { -webkit-appearance:none; appearance:none; width:100px; height:2px; border-radius:2px; background:linear-gradient(90deg,#2a2214,#f0c878); outline:none; cursor:pointer; }
-  .panel input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:9px; height:9px; border-radius:50%; background:#f0c878; border:2px solid #141008; box-shadow:0 0 6px rgba(240,200,120,0.6); cursor:pointer; }
-  .panel button { font-family:inherit; font-size:7px; letter-spacing:0.12em; font-weight:600; color:#1a1208; background:linear-gradient(180deg,#f0d08a,#c9983a); border:none; border-radius:5px; padding:5px 10px; cursor:pointer; text-transform:uppercase; transition:transform .12s, box-shadow .12s; }
-  .panel button:hover { transform:translateY(-1px); box-shadow:0 3px 10px rgba(240,180,80,0.3); }
-  .divider { width:1px; height:18px; background:rgba(240,200,120,0.12); }
-  #toast { position:fixed; left:50%; top:18px; transform:translateX(-50%); z-index:20; padding:5px 12px; border-radius:6px; background:rgba(20,10,10,0.8); border:1px solid rgba(255,120,80,0.4); color:#ffb08a; font-size:9px; letter-spacing:0.08em; opacity:0; transition:opacity .3s; pointer-events:none; }
-  #toast.show { opacity:1; }
-  @media (max-width:640px) { .panel{gap:8px;padding:5px 9px;} .panel input[type=range]{width:70px;} .hints{font-size:6px;bottom:58px;} }
+:root{
+  --holo:#7ee7ff;
+  --amber:#ffc46b;
+  --panel:rgba(5,12,17,.78);
+  --line:rgba(126,231,255,.32);
+  --text:#d8f3fb;
+  --dim:#8fb2bd;
+  --ok:#3dffb0;
+  --err:#ff6b6b;
+  --warn:#ffc46b;
+  --mono:"Cascadia Mono","JetBrains Mono",Consolas,"Courier New",monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{background:#000;overflow:hidden;font-family:var(--mono);color:var(--text);-webkit-font-smoothing:antialiased}
+body.mouse-ctl{cursor:grab}
+body.mouse-ctl.dragging{cursor:grabbing}
+
+/* 层级：黑底(0) → 摄像头(1) → 骨骼点(2) → 全息场景(3) → HUD(6+) */
+#blackbase{position:fixed;inset:0;background:#000;z-index:0}
+#cam{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);opacity:.65;z-index:1;background:#000}
+#landmarks{position:fixed;inset:0;z-index:2;pointer-events:none}
+#holo{position:fixed;inset:0;z-index:3;pointer-events:none}
+#holo canvas{display:block;width:100%;height:100%}
+
+.hud{position:fixed;z-index:6;font-size:11px;letter-spacing:.05em;line-height:1;user-select:none;-webkit-user-select:none}
+
+/* ---------- 遥测文本框（左上，带状态小点） ---------- */
+#telemetry{top:14px;left:14px;min-width:168px;background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:8px 11px;display:flex;flex-direction:column;gap:6px}
+.tm-row{display:flex;align-items:center;gap:8px;font-size:10px}
+.tm-dot{width:6px;height:6px;border-radius:50%;background:#5b7480;flex:none;box-shadow:none}
+.tm-dot.on{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+.tm-dot.err{background:var(--err);box-shadow:0 0 6px var(--err)}
+.tm-dot.warn{background:var(--warn);box-shadow:0 0 6px var(--warn)}
+.tm-key{color:var(--dim);width:44px;flex:none}
+.tm-val{color:var(--holo);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ---------- 控制面板（右上） ---------- */
+#panel{top:14px;right:14px;width:204px;background:var(--panel);border:1px solid var(--line);border-radius:5px}
+#panel-toggle{display:block;width:100%;padding:8px 11px;background:none;border:0;border-bottom:1px solid var(--line);color:var(--text);font:inherit;letter-spacing:.08em;text-align:left;cursor:pointer}
+#panel-toggle:hover{color:var(--holo)}
+#panel-body{padding:10px 11px 12px;display:flex;flex-direction:column;gap:11px}
+#panel.collapsed #panel-body{display:none}
+#panel.collapsed #panel-toggle{border-bottom:0}
+.ctl{display:flex;flex-direction:column;gap:6px}
+.ctl-label{display:flex;justify-content:space-between;color:var(--dim)}
+.ctl-label b{color:var(--holo);font-weight:400}
+input[type=range]{width:100%;height:3px;appearance:none;-webkit-appearance:none;background:rgba(126,231,255,.25);border-radius:2px;outline:none;cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;border-radius:50%;background:var(--holo);box-shadow:0 0 6px rgba(126,231,255,.8)}
+input[type=range]::-moz-range-thumb{width:11px;height:11px;border:0;border-radius:50%;background:var(--holo)}
+.ctl-row{display:flex;gap:8px;align-items:center;justify-content:space-between}
+.sw{display:flex;align-items:center;gap:5px;color:var(--dim);cursor:pointer;font-size:10px}
+.sw input{accent-color:var(--holo);width:13px;height:13px;cursor:pointer}
+button{font:inherit;letter-spacing:.05em;background:rgba(126,231,255,.08);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:5px 8px;cursor:pointer}
+button:hover{background:rgba(126,231,255,.18);color:#fff;box-shadow:0 0 8px rgba(126,231,255,.35)}
+button.active{background:rgba(126,231,255,.22);color:#fff;border-color:var(--holo);box-shadow:0 0 8px rgba(126,231,255,.4)}
+.seg{display:flex;gap:6px}
+.seg button{flex:1}
+#reset-btn,#fs-btn{flex:1}
+
+/* ---------- 手势提示（底部） ---------- */
+#hint{bottom:14px;left:50%;transform:translateX(-50%);display:flex;gap:18px;padding:7px 14px;background:var(--panel);border:1px solid var(--line);border-radius:5px;color:var(--dim);white-space:nowrap}
+#hint span{display:flex;align-items:center}
+#hint span::before{content:"▪";color:var(--holo);margin-right:6px;font-size:8px;vertical-align:1px}
+
+/* ---------- 模式横幅（摄像头不可用时，位于底部提示条上方） ---------- */
+#banner{position:fixed;bottom:64px;top:auto;left:50%;transform:translateX(-50%);z-index:7;display:none;align-items:center;gap:10px;max-width:86vw;padding:8px 12px;background:rgba(40,10,4,.88);border:1px solid rgba(255,196,107,.55);border-radius:5px;font-size:11px;color:#ffe6c2;letter-spacing:.04em}
+#banner.show{display:flex}
+#banner .b-close{margin-left:2px;width:18px;height:18px;line-height:16px;text-align:center;border:1px solid rgba(255,196,107,.4);border-radius:3px;cursor:pointer;color:var(--amber);background:none;padding:0;font:inherit}
+#banner .b-close:hover{background:rgba(255,196,107,.2)}
+
+#toast{position:fixed;bottom:64px;left:50%;transform:translateX(-50%) translateY(8px);z-index:8;max-width:80vw;padding:8px 14px;background:rgba(40,8,10,.85);border:1px solid rgba(255,107,107,.5);border-radius:5px;font-size:11px;color:#ffd9d9;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+@media (max-width:640px){
+  #hint{gap:10px;font-size:10px}
+  #panel{width:178px}
+  #telemetry{min-width:150px}
+  #banner{font-size:10px}
+}
 </style>
 </head>
 <body>
-  <video id="webcam" autoplay playsinline muted></video>
-  <div id="dim-overlay"></div>
-  <canvas id="hand-canvas"></canvas>
-  <div class="scanlines"></div>
-  <div class="topbar"><div class="title">Holographic Candlestick</div><div class="sub">Mediapipe · Three.js · Gesture</div></div>
-  <div class="status" id="status"><span class="dot"></span><span id="status-text">初始化</span></div>
-  <div class="hints">张合手掌 · 缩放烛台 &nbsp;|&nbsp; 移动手掌 · 平移烛台</div>
-  <div class="panel"><div class="group"><label>视频可见度</label><input type="range" id="opacity" min="0" max="100" value="55"></div><div class="divider"></div><button id="reset-btn">复位</button></div>
-  <div id="toast"></div>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1640029074/camera_utils.min.js"></script>
-<script>
-const renderer = new THREE.WebGLRenderer({antialias:true,alpha:true});
-renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
-renderer.setSize(window.innerWidth,window.innerHeight);
-renderer.setClearColor(0x000000,0);
-document.body.appendChild(renderer.domElement);
-renderer.domElement.id='scene-canvas';
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(45,window.innerWidth/window.innerHeight,0.1,100);
-camera.position.set(0,0.15,4.4);camera.lookAt(0,0,0);
-scene.add(new THREE.AmbientLight(0x6a5a40,0.7));
-scene.add(new THREE.HemisphereLight(0x998866,0x221108,0.45));
-const flameLight = new THREE.PointLight(0xffaa44,2.2,8,2);scene.add(flameLight);
-const fill = new THREE.PointLight(0xff8833,0.6,5,2);fill.position.set(0,0.5,1.5);scene.add(fill);
-const rim = new THREE.DirectionalLight(0x6688cc,0.35);rim.position.set(-2,3,-3);scene.add(rim);
-function makeRadialTexture(i,o){const c=document.createElement('canvas');c.width=c.height=128;const x=c.getContext('2d');const g=x.createRadialGradient(64,64,0,64,64,64);g.addColorStop(0,i);g.addColorStop(0.4,o);g.addColorStop(1,'rgba(0,0,0,0)');x.fillStyle=g;x.fillRect(0,0,128,128);return new THREE.CanvasTexture(c);}
-const glowTex=makeRadialTexture('rgba(255,220,140,1)','rgba(255,150,50,0.4)');
-const holderGroup=new THREE.Group();
-const brassMat=new THREE.MeshStandardMaterial({color:0x9a7440,metalness:0.75,roughness:0.42});
-const brassDark=new THREE.MeshStandardMaterial({color:0x5e4426,metalness:0.65,roughness:0.55});
-const profile=[[0,0],[0.44,0],[0.49,0.025],[0.48,0.055],[0.43,0.095],[0.36,0.15],[0.28,0.215],[0.21,0.28],[0.17,0.34],[0.15,0.39],[0.14,0.43],[0.15,0.46],[0.22,0.49],[0.34,0.515],[0.42,0.545],[0.44,0.575],[0.42,0.6],[0.36,0.62],[0.26,0.635],[0.16,0.645],[0.12,0.665],[0.1,0.7],[0.11,0.735],[0.15,0.77],[0.19,0.82],[0.2,0.87],[0.18,0.92],[0.13,0.96],[0.1,0.99],[0.09,1.03],[0.1,1.06],[0.08,1.1],[0.09,1.13],[0.08,1.16],[0.12,1.19],[0.19,1.22],[0.23,1.25],[0.24,1.28],[0.22,1.305],[0.16,1.32],[0.1,1.33],[0.085,1.345],[0.085,1.38]];
-const holderGeo=new THREE.LatheGeometry(profile.map(p=>new THREE.Vector2(p[0],p[1])),64);
-holderGroup.add(new THREE.Mesh(holderGeo,brassMat));
-const footRing=new THREE.Mesh(new THREE.TorusGeometry(0.46,0.012,8,64),brassDark);footRing.rotation.x=Math.PI/2;footRing.position.y=0.03;holderGroup.add(footRing);
-const candleMat=new THREE.MeshStandardMaterial({color:0xf3e2b5,roughness:0.7,metalness:0});
-const candleH=0.58;
-const candle=new THREE.Mesh(new THREE.CylinderGeometry(0.088,0.095,candleH,24),candleMat);candle.position.y=1.38+candleH/2;holderGroup.add(candle);
-const candleTop=new THREE.Mesh(new THREE.CircleGeometry(0.085,24),new THREE.MeshStandardMaterial({color:0xe8d49a,roughness:0.85}));candleTop.rotation.x=-Math.PI/2;candleTop.position.y=1.38+candleH+0.001;holderGroup.add(candleTop);
-const wick=new THREE.Mesh(new THREE.CylinderGeometry(0.006,0.006,0.05,6),new THREE.MeshBasicMaterial({color:0x1a1208}));wick.position.y=1.38+candleH+0.02;holderGroup.add(wick);
-const flameBaseY=1.38+candleH+0.06;
-const flameOuter=new THREE.Mesh(new THREE.ConeGeometry(0.045,0.2,16),new THREE.MeshBasicMaterial({color:0xff9933,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false}));flameOuter.position.y=flameBaseY+0.08;holderGroup.add(flameOuter);
-const flameInner=new THREE.Mesh(new THREE.ConeGeometry(0.022,0.12,12),new THREE.MeshBasicMaterial({color:0xffee99,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false}));flameInner.position.y=flameBaseY+0.05;holderGroup.add(flameInner);
-const flameGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:0xffbb55,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false}));flameGlow.scale.set(0.55,0.55,1);flameGlow.position.y=flameBaseY+0.08;holderGroup.add(flameGlow);
-const holoRing=new THREE.Mesh(new THREE.RingGeometry(0.55,0.62,64),new THREE.MeshBasicMaterial({color:0xf0a848,transparent:true,opacity:0.25,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));holoRing.rotation.x=-Math.PI/2;holoRing.position.y=-0.02;holderGroup.add(holoRing);
-const holoDisc=new THREE.Mesh(new THREE.CircleGeometry(0.55,64),new THREE.MeshBasicMaterial({map:glowTex,color:0xcc8833,transparent:true,opacity:0.18,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));holoDisc.rotation.x=-Math.PI/2;holoDisc.position.y=-0.025;holderGroup.add(holoDisc);
-const HOLDER_Y_OFFSET=-1.05;holderGroup.position.y=HOLDER_Y_OFFSET;scene.add(holderGroup);
-flameLight.position.set(0,flameBaseY+HOLDER_Y_OFFSET,0);
-const state={pos:new THREE.Vector3(0,0,0),targetPos:new THREE.Vector3(0,0,0),scale:1,targetScale:1,smoothX:0.5,smoothY:0.5,smoothOpen:1.5};
-function palmCenter(lm){const i=[0,5,9,13,17];let x=0,y=0;i.forEach(j=>{x+=lm[j].x;y+=lm[j].y});return{x:1-x/i.length,y:y/i.length};}
-function handOpenness(lm){const w=lm[0];const ps=Math.hypot(lm[9].x-w.x,lm[9].y-w.y);const t=[8,12,16,20];let s=0;t.forEach(id=>{s+=Math.hypot(lm[id].x-w.x,lm[id].y-w.y)});return(s/t.length)/ps;}
-function opennessToScale(o){const t=Math.max(0,Math.min(1,(o-1.0)/(2.1-1.0)));return 0.5+t*1.7;}
-const video=document.getElementById('webcam');
-const statusEl=document.getElementById('status');
-const statusText=document.getElementById('status-text');
-const handCanvas=document.getElementById('hand-canvas');
-const hctx=handCanvas.getContext('2d');
-function sizeHandCanvas(){handCanvas.width=window.innerWidth;handCanvas.height=window.innerHeight;}
-sizeHandCanvas();
-function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._timer);t._timer=setTimeout(()=>t.classList.remove('show'),2400);}
-const HC=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
-let hands=null;
-try{hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${f}`});hands.setOptions({maxNumHands:2,modelComplexity:1,minDetectionConfidence:0.6,minTrackingConfidence:0.5});}catch(e){statusText.textContent='手势库不可用';}
-if(hands)hands.onResults(res=>{const lms=res.multiHandLandmarks||[];hctx.clearRect(0,0,handCanvas.width,handCanvas.height);function dd(p,c,r){hctx.beginPath();hctx.arc(p.x*handCanvas.width,p.y*handCanvas.height,r,0,Math.PI*2);hctx.fillStyle=c;hctx.shadowColor=c;hctx.shadowBlur=10;hctx.fill();hctx.shadowBlur=0;}
-function ds(lm){hctx.strokeStyle='rgba(240,200,120,0.35)';hctx.lineWidth=1;hctx.beginPath();HC.forEach(([a,b])=>{const pa=lm[a],pb=lm[b];hctx.moveTo((1-pa.x)*handCanvas.width,pa.y*handCanvas.height);hctx.lineTo((1-pb.x)*handCanvas.width,pb.y*handCanvas.height)});hctx.stroke();lm.forEach(p=>dd({x:1-p.x,y:p.y},'rgba(240,200,120,0.5)',2));}
-if(lms.length>=1){const lm=lms[0];ds(lm);const palm=palmCenter(lm);const op=handOpenness(lm);state.smoothX+=(palm.x-state.smoothX)*0.35;state.smoothY+=(palm.y-state.smoothY)*0.35;state.smoothOpen+=(op-state.smoothOpen)*0.25;state.targetPos.x=(state.smoothX-0.5)*4.2;state.targetPos.y=-(state.smoothY-0.5)*3.0;state.targetPos.x=Math.max(-2.2,Math.min(2.2,state.targetPos.x));state.targetPos.y=Math.max(-1.4,Math.min(1.6,state.targetPos.y));state.targetScale=opennessToScale(state.smoothOpen);state.targetScale=Math.max(0.4,Math.min(2.5,state.targetScale));const f=state.smoothOpen<1.35,o=state.smoothOpen>1.7;statusText.textContent=f?'握拳 · 缩小':o?'张开 · 放大':'跟踪中 · 移动手掌';statusEl.classList.add('active','mode');dd(palm,'rgba(127,224,138,0.9)',8);}else{state.targetPos.set(0,0,0);state.targetScale=1;statusText.textContent='未检测到手';statusEl.classList.remove('active','mode');}});
-if(hands&&typeof Camera!=='undefined'){const cu=new Camera(video,{onFrame:async()=>{await hands.send({image:video})},width:1280,height:720});cu.start().then(()=>{statusText.textContent='摄像头就绪';}).catch(e=>{toast('无法访问摄像头：请允许摄像头权限');statusText.textContent='摄像头不可用';});}
-const dimOverlay=document.getElementById('dim-overlay');
-document.getElementById('opacity').addEventListener('input',e=>{dimOverlay.style.opacity=(1-e.target.value/100).toFixed(2);});
-document.getElementById('reset-btn').addEventListener('click',()=>{state.targetPos.set(0,0,0);state.targetScale=1;state.smoothX=0.5;state.smoothY=0.5;state.smoothOpen=1.5;toast('视角已复位');});
-const clock=new THREE.Clock();
-function animate(){requestAnimationFrame(animate);const t=clock.getElapsedTime();const fl=1+Math.sin(t*11)*0.12+Math.sin(t*23)*0.08+Math.sin(t*37)*0.05;flameLight.intensity=2.0*fl;flameOuter.scale.set(1+Math.sin(t*15)*0.06,1+Math.sin(t*13)*0.1,1+Math.sin(t*15)*0.06);flameInner.scale.set(1+Math.sin(t*19)*0.08,1+Math.sin(t*17)*0.12,1+Math.sin(t*19)*0.08);flameGlow.material.opacity=0.55+Math.sin(t*11)*0.12;flameGlow.scale.set(0.5+Math.sin(t*13)*0.05,0.5+Math.sin(t*13)*0.05,1);state.pos.lerp(state.targetPos,0.12);state.scale+=(state.targetScale-state.scale)*0.12;const bob=Math.sin(t*1.3)*0.03;holderGroup.position.x=state.pos.x;holderGroup.position.y=HOLDER_Y_OFFSET+state.pos.y+bob;holderGroup.position.z=state.pos.z;holderGroup.scale.setScalar(state.scale);holoRing.material.opacity=0.18+Math.sin(t*2.2)*0.08;holoDisc.material.opacity=0.12+Math.sin(t*2.2)*0.05;renderer.render(scene,camera);}
-animate();
-window.addEventListener('resize',()=>{camera.aspect=window.innerWidth/window.innerHeight;camera.updateProjectionMatrix();renderer.setSize(window.innerWidth,window.innerHeight);sizeHandCanvas();});
-</script>
+  <!-- 层级 0：纯黑底（视频透明度归零时即为黑底） -->
+  <div id="blackbase"></div>
+  <!-- 层级 1：摄像头画面全屏，可见度由滑块控制 -->
+  <video id="cam" autoplay playsinline muted></video>
+  <!-- 层级 2：手势骨骼点覆盖层 -->
+  <canvas id="landmarks"></canvas>
+  <!-- 层级 3：Three.js 全息场景 -->
+  <div id="holo"></div>
+
+  <!-- 遥测文本框（左上，带状态小点） -->
+  <section class="hud" id="telemetry" aria-live="polite">
+    <div class="tm-row"><span class="tm-dot" id="d-cam"></span><span class="tm-key">CAM</span><span class="tm-val" id="v-cam">连接中</span></div>
+    <div class="tm-row"><span class="tm-dot" id="d-model"></span><span class="tm-key">MODEL</span><span class="tm-val" id="v-model">加载中</span></div>
+    <div class="tm-row"><span class="tm-dot" id="d-hands"></span><span class="tm-key">HANDS</span><span class="tm-val" id="v-hands">0 只手</span></div>
+    <div class="tm-row"><span class="tm-dot" id="d-fps"></span><span class="tm-key">FPS</span><span class="tm-val" id="v-fps">--</span></div>
+    <div class="tm-row"><span class="tm-dot" id="d-mode"></span><span class="tm-key">MODE</span><span class="tm-val" id="v-mode">待命</span></div>
+  </section>
+
+  <!-- 控制面板（右上） -->
+  <aside class="hud" id="panel">
+    <button id="panel-toggle" type="button" aria-expanded="true">控制台</button>
+    <div id="panel-body">
+      <label class="ctl">
+        <span class="ctl-label">视频透明度 <b id="val-op">65%</b></span>
+        <input id="op-slider" type="range" min="0" max="100" value="65">
+      </label>
+      <label class="ctl">
+        <span class="ctl-label">全息亮度 <b id="val-holo">100%</b></span>
+        <input id="holo-slider" type="range" min="30" max="150" value="100">
+      </label>
+      <div class="ctl-row">
+        <label class="sw"><input id="scan-toggle" type="checkbox" checked><span>扫描线</span></label>
+        <label class="sw"><input id="skel-toggle" type="checkbox" checked><span>骨骼点</span></label>
+      </div>
+      <div class="ctl-row">
+        <label class="sw"><input id="rot-toggle" type="checkbox" checked><span>自动旋转</span></label>
+      </div>
+      <div class="ctl">
+        <span class="ctl-label">控制模式</span>
+        <div class="seg">
+          <button id="mode-gesture" type="button" class="active">手势</button>
+          <button id="mode-mouse" type="button">鼠标</button>
+        </div>
+      </div>
+      <div class="ctl-row">
+        <button id="reset-btn" type="button">重置视角</button>
+        <button id="fs-btn" type="button">全屏</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- 手势提示（底部，随控制模式切换） -->
+  <footer class="hud" id="hint"></footer>
+
+  <!-- 模式横幅（摄像头 / 手势模型不可用时自动出现） -->
+  <div id="banner" role="status">
+    <span id="banner-txt">摄像头不可用，已切换鼠标控制</span>
+    <button class="b-close" id="banner-close" type="button" aria-label="关闭">×</button>
+  </div>
+
+  <div id="toast" role="status"></div>
+
+  <!-- 依赖加载器：Three.js + MediaPipe Hands 多镜像回退（jsDelivr → fastly → npmmirror） -->
+  <script>
+  window.__loadSeq = function (srcs, done) {
+    var i = 0;
+    function next() {
+      if (i >= srcs.length) { done && done(-1); return; }
+      var idx = i++;
+      var s = document.createElement('script');
+      s.src = srcs[idx];
+      s.onload = function () { done && done(idx); };
+      s.onerror = function () { next(); };
+      document.head.appendChild(s);
+    }
+    next();
+  };
+  window.__bootError = function (msg) {
+    var t = document.getElementById('toast');
+    if (t) { t.textContent = msg; t.classList.add('show'); }
+  };
+  window.__THREE_MIRRORS = [
+    'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
+    'https://registry.npmmirror.com/three/0.128.0/files/build/three.min.js'
+  ];
+  window.__HANDS_MIRRORS = [
+    'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/',
+    'https://fastly.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/',
+    'https://registry.npmmirror.com/@mediapipe/hands/0.4.1675469240/files/'
+  ];
+  window.__boot = function () {
+    __loadSeq(__THREE_MIRRORS, function (ti) {
+      if (ti < 0 || !window.THREE) { __bootError('Three.js 加载失败：请检查网络后刷新'); return; }
+      __loadSeq(__HANDS_MIRRORS.map(function (b) { return b + 'hands.js'; }), function (hi) {
+        if (hi < 0 || !window.Hands) { __bootError('MediaPipe 加载失败：手势控制不可用'); }
+        window.__handsBase = (hi >= 0) ? __HANDS_MIRRORS[hi] : null;
+        window.__main && __main();
+      });
+    });
+  };
+  window.__boot();
+  </script>
+  <script>
+  window.__main = function () {
+  /* ================================================================
+   * 第一部分 · Three.js 全息场景（黑底之上悬浮的复古烛台全息投影）
+   * ================================================================ */
+
+  /* ---------- 工具函数与全局状态 ---------- */
+  const $ = id => document.getElementById(id);
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const dist3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+  const avg = (a, b) => (a + b) / 2;
+
+  const state = {
+    mode: 'IDLE',            // IDLE | MOVE | ZOOM
+    zoomKind: null,          // 'pinch' | 'palms'（两种双手缩放手势）
+    control: 'gesture',      // 'gesture' | 'mouse'
+    camReady: false, camFailed: false,
+    modelReady: false, modelFailed: false,
+    handTracker: null,
+    hands: [],
+    handPrev: new Map(),
+    target: { x: 0, y: 0.15, scale: 1 },
+    current: { x: 0, y: 0.15, scale: 1 },
+    zoomDist0: 1, scaleAtStart: 1,
+    rotY: 0,
+    autoRotate: true,
+    videoOpacity: 0.65,
+    holoIntensity: 1,
+    scanlines: true,
+    showSkeleton: true,
+    fps: 0,
+    hidden: false,
+    reducedMotion: !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches),
+    materials: [],
+    candlestick: null, flame: null, flameGlow: null, particles: null,
+  };
+
+  /* ---------- 渲染器 / 相机（fov 45，主体占画面约 62% 高度，镜头稳重） ---------- */
+  const wrap = $('holo');
+  const scene = new THREE.Scene();
+  const camera3 = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100);
+  camera3.position.set(0, 0.9, 6.6);
+  camera3.lookAt(0, 0.15, 0);
+
+  const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setClearColor(0x000000, 0);
+  renderer.setSize(innerWidth, innerHeight);
+  wrap.appendChild(renderer.domElement);
+
+  /* ---------- 全息着色器材质（fresnel 边缘光 + 浮动静止波段 + 水平扫描线） ---------- */
+  function holoMaterial(colorHex, wobble) {
+    const m = new THREE.ShaderMaterial({
+      uniforms: {
+        uColor: { value: new THREE.Color(colorHex) },
+        uTime: { value: 0 },
+        uIntensity: { value: 1 },
+        uScanlines: { value: 1 },
+        uWobble: { value: wobble == null ? 0.5 : wobble },
+      },
+      vertexShader: [
+        'varying vec3 vN; varying vec3 vV; varying vec2 vUv;',
+        'void main(){',
+        '  vN = normalize(normalMatrix * normal);',
+        '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
+        '  vV = normalize(-mv.xyz);',
+        '  vUv = uv;',
+        '  gl_Position = projectionMatrix * mv;',
+        '}',
+      ].join('\n'),
+      fragmentShader: [
+        'uniform vec3 uColor; uniform float uTime; uniform float uIntensity; uniform float uScanlines; uniform float uWobble;',
+        'varying vec3 vN; varying vec3 vV; varying vec2 vUv;',
+        'void main(){',
+        '  float ndv = abs(dot(normalize(vN), normalize(vV)));',
+        '  float fres = pow(1.0 - ndv, 2.0);',
+        '  float wob = sin(vUv.y * 46.0 - uTime * (1.2 + uWobble)) * 0.5 + 0.5;',
+        '  float band = step(0.62, wob) * 0.14;',
+        '  float scan = 0.0;',
+        '  if (uScanlines > 0.5) {',
+        '    scan = sin(vUv.y * 320.0 + uTime * 2.4) * 0.5 + 0.5;',
+        '    scan = smoothstep(0.62, 0.78, scan) * 0.10;',
+        '  }',
+        '  float edge = clamp(fres * 1.35 + 0.10, 0.0, 1.0);',
+        '  vec3 col = uColor * (edge + band + scan) * uIntensity;',
+        '  gl_FragColor = vec4(col, 1.0);',
+        '}',
+      ].join('\n'),
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    state.materials.push(m);
+    return m;
+  }
+
+  /* ---------- 光斑贴图（Canvas 径向渐变） ---------- */
+  function makeGlowTexture(c1, c2) {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 128;
+    const g = cv.getContext('2d');
+    const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    grd.addColorStop(0, c1);
+    grd.addColorStop(0.35, c2);
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(cv);
+  }
+
+  /* ---------- 程序化复古烛台（参照参考图造型：钟形底座 / 接蜡盘 / 旋纹支柱 / 花边托盘 / 火焰） ---------- */
+  function buildCandlestick() {
+    const g = new THREE.Group();
+    const lathe = (pts, seg) => new THREE.LatheGeometry(pts.map(p => new THREE.Vector2(p[0], p[1])), seg);
+
+    /* 钟形底座 */
+    const bell = new THREE.Mesh(lathe([
+      [0, 0], [0.5, 0.01], [0.82, 0.04], [0.94, 0.1], [0.99, 0.2],
+      [0.97, 0.32], [0.86, 0.44], [0.66, 0.56], [0.44, 0.68], [0.28, 0.8], [0.2, 0.92], [0.18, 1],
+    ], 56), holoMaterial(0x67e8f9));
+    bell.scale.setScalar(0.95);
+    bell.position.y = -1.62;
+    g.add(bell);
+
+    /* 接蜡盘 */
+    const plate = new THREE.Mesh(lathe([
+      [0, 0], [0.62, 0.02], [0.82, 0.07], [0.92, 0.15], [0.95, 0.24],
+      [0.85, 0.3], [0.5, 0.32], [0.16, 0.33], [0.08, 0.36],
+    ], 48), holoMaterial(0x9be8ff));
+    plate.scale.setScalar(0.85);
+    plate.position.y = -0.72;
+    g.add(plate);
+
+    /* 旋纹支柱（螺旋管 + 中心柱） */
+    const helix = [];
+    for (let i = 0; i <= 120; i++) {
+      const t = i / 120;
+      const ang = t * Math.PI * 2 * 3.4;
+      const r = 0.13 * (1 + t * 0.28);
+      helix.push(new THREE.Vector3(Math.cos(ang) * r, -0.62 + t, Math.sin(ang) * r));
+    }
+    g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(helix), 200, 0.045, 8, false), holoMaterial(0x7ee7ff)));
+    const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 1, 16, 1), holoMaterial(0x67e8f9));
+    rod.position.y = -0.12;
+    g.add(rod);
+
+    /* 花边托盘（承托蜡烛） */
+    const tray = new THREE.Group();
+    tray.add(new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.24, 0.07, 40), holoMaterial(0x9be8ff)));
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.022, 8, 48), holoMaterial(0x7ee7ff));
+    rim.rotation.x = Math.PI / 2;
+    rim.position.y = 0.07;
+    tray.add(rim);
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      const bead = new THREE.Mesh(new THREE.SphereGeometry(0.03, 10, 8), holoMaterial(0xd8fbff));
+      bead.position.set(Math.cos(a) * 0.325, 0.05, Math.sin(a) * 0.325);
+      tray.add(bead);
+    }
+    tray.position.y = 0.42;
+    g.add(tray);
+
+    /* 蜡烛（上细下粗）+ 蜡泪 */
+    g.add(new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.175, 1.55, 28, 1), holoMaterial(0xffedcf)));
+    const candleMesh = g.children[g.children.length - 1];
+    candleMesh.position.y = 1.25;
+    [[-0.14, 1.95, 0.02], [0.12, 1.72, 0.05], [-0.05, 1.5, -0.14], [0.09, 2.1, -0.06]].forEach(p => {
+      const d = new THREE.Mesh(new THREE.SphereGeometry(0.028, 10, 8), holoMaterial(0xffedcf));
+      d.position.set(p[0], p[1], p[2]);
+      g.add(d);
+    });
+
+    /* 烛芯 */
+    const wick = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.011, 0.16, 8), holoMaterial(0xbfd9e2));
+    wick.position.y = 2.08;
+    g.add(wick);
+
+    /* 火焰：外层焰 + 内芯 + 光晕 Sprite */
+    const flame = new THREE.Group();
+    const inner = new THREE.Mesh(lathe([
+      [0, 0], [0.07, 0.05], [0.105, 0.13], [0.12, 0.24], [0.11, 0.36], [0.085, 0.48], [0.05, 0.58], [0.02, 0.66], [0, 0.7],
+    ], 24), holoMaterial(0xffc46b));
+    const core = new THREE.Mesh(lathe([
+      [0, 0], [0.04, 0.04], [0.055, 0.1], [0.05, 0.18], [0.03, 0.26], [0, 0.3],
+    ], 18), holoMaterial(0xfff6d8));
+    flame.add(inner, core);
+    flame.position.y = 2.17;
+    g.add(flame);
+
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: makeGlowTexture('rgba(255,196,107,0.85)', 'rgba(255,150,60,0.22)'),
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      transparent: true,
+    }));
+    glow.position.y = 2.38;
+    glow.scale.set(1.1, 1.1, 1);
+    g.add(glow);
+
+    /* 地面光环 + 投影锥（自底座向下扩散） */
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.92, 64), new THREE.MeshBasicMaterial({
+      map: makeGlowTexture('rgba(126,231,255,0.5)', 'rgba(126,231,255,0.08)'),
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = -2.08;
+    g.add(ring);
+
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.001, 1.9, 1.2, 32, 1, true), new THREE.MeshBasicMaterial({
+      color: 0x4fd8ff,
+      transparent: true,
+      opacity: 0.07,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }));
+    beam.position.y = -2.7;
+    g.add(beam);
+
+    state.flame = flame;
+    state.flameGlow = glow;
+    state.candlestick = g;
+    scene.add(g);
+    return g;
+  }
+
+  /* ---------- 悬浮粒子 ---------- */
+  function buildParticles() {
+    const N = 130;
+    const pos = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 0.5 + Math.random() * 1.4;
+      pos[i * 3] = Math.cos(a) * r;
+      pos[i * 3 + 1] = -1.9 + Math.random() * 4.6;
+      pos[i * 3 + 2] = Math.sin(a) * r;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+      map: makeGlowTexture('rgba(160,240,255,0.9)', 'rgba(120,220,255,0)'),
+      size: 0.055,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      opacity: 0.8,
+    }));
+    state.particles = pts;
+    scene.add(pts);
+  }
+
+  buildCandlestick();
+  buildParticles();
+
+  /* ---------- 主循环（reduced-motion 下仍渲染静态帧；页面隐藏时停算省电） ---------- */
+  const clock = new THREE.Clock();
+  let lastFrame = performance.now();
+  let fpsAcc = 0, fpsN = 0, fpsT = performance.now();
+  function animate() {
+    requestAnimationFrame(animate);
+    if (state.hidden) return;
+    const t = clock.getElapsedTime();
+    const dt = Math.min((performance.now() - lastFrame) / 1000, 0.1);
+    lastFrame = performance.now();
+
+    /* FPS 统计（500ms 窗口） */
+    fpsAcc += dt; fpsN++;
+    if (performance.now() - fpsT >= 500) {
+      state.fps = fpsN / Math.max(fpsAcc, 1e-4);
+      fpsAcc = 0; fpsN = 0; fpsT = performance.now();
+    }
+
+    /* 平滑跟随目标（帧率无关插值） */
+    const k = 1 - Math.pow(0.0015, dt);
+    state.current.x = lerp(state.current.x, state.target.x, k);
+    state.current.y = lerp(state.current.y, state.target.y, k);
+    state.current.scale = lerp(state.current.scale, state.target.scale, k);
+
+    const cs = state.candlestick;
+    const bob = (state.mode === 'IDLE' && !state.reducedMotion) ? Math.sin(t * 1.1) * 0.03 : 0;
+    cs.position.x = state.current.x;
+    cs.position.y = state.current.y + bob;
+    cs.scale.setScalar(state.current.scale);
+    if (state.control === 'mouse') {
+      cs.rotation.y = state.rotY;
+    } else if (state.autoRotate && state.mode === 'IDLE' && !state.reducedMotion) {
+      cs.rotation.y += dt * 0.3;
+    }
+
+    /* 火焰呼吸 */
+    if (state.flame) {
+      if (!state.reducedMotion) {
+        const f = 1 + Math.sin(t * 13.7) * 0.07 + Math.sin(t * 29.3) * 0.04;
+        state.flame.scale.set(0.94 + Math.sin(t * 23.1) * 0.05, f, 0.94 + Math.sin(t * 19.7) * 0.05);
+        const gs = 1 + Math.sin(t * 8.3) * 0.05;
+        state.flameGlow.scale.set(gs * 1.1, gs * 1.1, 1);
+      } else {
+        state.flame.scale.set(1, 1, 1);
+      }
+    }
+
+    /* 粒子缓升 */
+    if (state.particles && !state.reducedMotion) {
+      const arr = state.particles.geometry.attributes.position.array;
+      for (let i = 1; i < arr.length; i += 3) {
+        arr[i] += dt * 0.06;
+        if (arr[i] > 2.8) arr[i] = -1.9;
+        arr[i] += Math.sin(t * 0.8 + arr[i - 1] * 2.0) * dt * 0.02;
+      }
+      state.particles.geometry.attributes.position.needsUpdate = true;
+    }
+
+    /* 材质统一参数 */
+    state.materials.forEach(m => {
+      m.uniforms.uTime.value = t;
+      m.uniforms.uIntensity.value = state.holoIntensity;
+      m.uniforms.uScanlines.value = state.scanlines ? 1 : 0;
+    });
+
+    renderer.render(scene, camera3);
+    window.__sceneReady = true;   // 自检可读的就绪标记
+  }
+
+  addEventListener('resize', () => {
+    camera3.aspect = innerWidth / innerHeight;
+    camera3.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+    sizeLandmarkCanvas();
+  });
+  document.addEventListener('visibilitychange', () => { state.hidden = document.hidden; });
+
+  /* ================================================================
+   * 第二部分 · MediaPipe 手势识别 + 摄像头 + 鼠标兜底
+   * ================================================================ */
+
+  const video = $('cam');
+  const CONN = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
+                [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+
+  /* ---------- 摄像头（失败 → 自动切换鼠标控制） ---------- */
+  async function initCamera() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      video.srcObject = stream;
+      await video.play();
+      state.camReady = true;
+      refreshTelemetry();
+    } catch (e) {
+      state.camReady = false;
+      state.camFailed = true;
+      refreshTelemetry();
+      enableMouseFallback('摄像头无法访问（请检查权限或使用 HTTPS / 本地服务器），已自动切换鼠标控制');
+    }
+  }
+
+  /* ---------- 手势判定 ---------- */
+  function pinchRatio(h) {
+    const lm = h.landmarks;
+    return dist3(lm[4], lm[8]) / Math.max(dist3(lm[0], lm[9]), 1e-5);
+  }
+
+  function isOpenPalm(h) {
+    const lm = h.landmarks, w = lm[0];
+    let n = 0;
+    for (const [mcp, tip] of [[5, 8], [9, 12], [13, 16], [17, 20]]) {
+      if (dist3(lm[tip], w) > dist3(lm[mcp], w) * 1.28) n++;
+    }
+    return n === 4;
+  }
+
+  /* 捏合迟滞：进入 < 0.42，退出 > 0.55，防抖 */
+  function pinchState(i, r) {
+    const prev = state.handPrev.get(i) || { pinch: false };
+    let pinch = prev.pinch;
+    if (r < 0.42) pinch = true;
+    else if (r > 0.55) pinch = false;
+    state.handPrev.set(i, { pinch });
+    return pinch;
+  }
+
+  /* 归一化坐标 → 世界坐标（视频已镜像，手部 x 同步镜像） */
+  function worldSpan() {
+    const dist = camera3.position.z;
+    const h = 2 * Math.tan(THREE.MathUtils.degToRad(camera3.fov / 2)) * dist;
+    return { w: h * camera3.aspect, h };
+  }
+  function worldOf(lx, ly) {
+    const s = worldSpan();
+    return { x: (lx - 0.5) * s.w, y: (0.5 - ly) * s.h + 0.15 };
+  }
+  function pinchWorldDist(a, b) {
+    const s = worldSpan();
+    const dx = ((1 - a.pinchP.x) - (1 - b.pinchP.x)) * s.w;
+    const dy = (a.pinchP.y - b.pinchP.y) * s.h;
+    return Math.hypot(dx, dy);
+  }
+  function palmWorldDist(a, b) {
+    const s = worldSpan();
+    const dx = ((1 - a.palm.x) - (1 - b.palm.x)) * s.w;
+    const dy = (a.palm.y - b.palm.y) * s.h;
+    return Math.hypot(dx, dy);
+  }
+
+  /* 每帧手势状态机：
+   * - 双手同时捏合 → 精细缩放（以捏合点间距为标尺）
+   * - 双手张开（或任意双手）→ 以两掌间距缩放（双手放大缩小），并跟随双手中心
+   * - 单掌张开 → 左右上下移动
+   * - 其余 → 待命（自动缓慢旋转） */
+  function updateGestures(rawHands) {
+    if (state.control !== 'gesture') return;
+    if (!rawHands.length) { state.mode = 'IDLE'; return; }
+    const info = rawHands.map((h, i) => ({
+      pinch: pinchState(i, pinchRatio(h)),
+      open: isOpenPalm(h),
+      palm: h.landmarks[9],
+      pinchP: h.landmarks[8],
+    }));
+    const pinching = info.filter(x => x.pinch);
+
+    if (pinching.length === 2) {
+      if (state.mode !== 'ZOOM' || state.zoomKind !== 'pinch') {
+        state.zoomKind = 'pinch';
+        state.zoomDist0 = pinchWorldDist(pinching[0], pinching[1]);
+        state.scaleAtStart = state.current.scale;
+      }
+      state.mode = 'ZOOM';
+      const d = pinchWorldDist(pinching[0], pinching[1]);
+      state.target.scale = clamp(state.scaleAtStart * d / Math.max(state.zoomDist0, 1e-4), 0.45, 3.2);
+      const m = worldOf(avg(1 - pinching[0].palm.x, 1 - pinching[1].palm.x),
+                        avg(pinching[0].palm.y, pinching[1].palm.y));
+      state.target.x = m.x;
+      state.target.y = m.y;
+    } else if (rawHands.length >= 2) {
+      if (state.mode !== 'ZOOM' || state.zoomKind !== 'palms') {
+        state.zoomKind = 'palms';
+        state.zoomDist0 = palmWorldDist(info[0], info[1]);
+        state.scaleAtStart = state.current.scale;
+      }
+      state.mode = 'ZOOM';
+      const d = palmWorldDist(info[0], info[1]);
+      state.target.scale = clamp(state.scaleAtStart * d / Math.max(state.zoomDist0, 1e-4), 0.45, 3.2);
+      const m = worldOf(avg(1 - info[0].palm.x, 1 - info[1].palm.x),
+                        avg(info[0].palm.y, info[1].palm.y));
+      state.target.x = m.x;
+      state.target.y = m.y;
+    } else if (rawHands.length === 1 && info[0].open) {
+      state.mode = 'MOVE';
+      const w = worldOf(1 - info[0].palm.x, info[0].palm.y);
+      state.target.x = w.x;
+      state.target.y = w.y;
+    } else {
+      state.mode = 'IDLE';
+    }
+  }
+
+  /* ---------- 骨骼点叠加绘制（与 object-fit:cover 的裁剪对齐） ---------- */
+  function sizeLandmarkCanvas() {
+    const cv = $('landmarks');
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    cv.width = Math.round(innerWidth * dpr);
+    cv.height = Math.round(innerHeight * dpr);
+    cv.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  function mapToScreen(x, y) {
+    const vw = video.videoWidth || 1, vh = video.videoHeight || 1;
+    const sc = Math.max(innerWidth / vw, innerHeight / vh);
+    const ox = (innerWidth - vw * sc) / 2, oy = (innerHeight - vh * sc) / 2;
+    return { x: innerWidth - (ox + x * vw * sc), y: oy + y * vh * sc };
+  }
+  function drawSkeleton(hands) {
+    const cv = $('landmarks');
+    const ctx = cv.getContext('2d');
+    ctx.clearRect(0, 0, innerWidth, innerHeight);
+    if (!state.camReady || !video.videoWidth) return;
+    for (const h of hands) {
+      const lm = h.landmarks;
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(126,231,255,0.5)';
+      ctx.beginPath();
+      for (const [a, b] of CONN) {
+        const p1 = mapToScreen(lm[a].x, lm[a].y), p2 = mapToScreen(lm[b].x, lm[b].y);
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+      }
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(216,251,255,0.85)';
+      for (const p of lm) {
+        const s = mapToScreen(p.x, p.y);
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  /* ---------- 检测循环（逐帧送入 MediaPipe，内部自节流） ---------- */
+  let processing = false;
+  function detect() {
+    if (!state.camReady || !state.handTracker || state.control !== 'gesture') return;
+    if (video.readyState < 2) return;
+    if (processing) return;
+    processing = true;
+    state.handTracker.send({ image: video }).then(() => { processing = false; }).catch(() => { processing = false; });
+  }
+
+  /* ---------- MediaPipe Hands（legacy 方案，模型/WASM 随 npm 包分发） ---------- */
+  function initHandTracking() {
+    if (!window.Hands) {
+      state.modelFailed = true;
+      refreshTelemetry();
+      enableMouseFallback('手势模型加载失败，已自动切换鼠标控制');
+      return;
+    }
+    try {
+      const hands = new window.Hands({ locateFile: f => window.__handsBase + f });
+      hands.setOptions({
+        maxNumHands: 2,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+      });
+      hands.onResults(results => {
+        const raw = (results.multiHandLandmarks || []).map(lm => ({ landmarks: lm }));
+        state.hands = raw;
+        updateGestures(raw);
+        if (state.showSkeleton) drawSkeleton(raw);
+      });
+      state.handTracker = hands;
+      state.modelReady = true;
+      refreshTelemetry();
+    } catch (e) {
+      state.modelFailed = true;
+      refreshTelemetry();
+      enableMouseFallback('手势模型初始化失败，已自动切换鼠标控制');
+    }
+  }
+  /* ================================================================
+   * 第三部分 · 鼠标兜底控制（摄像头 / 手势不可用或手动切换时）
+   * 左键拖拽移动 · 滚轮缩放 · 右键拖拽旋转 · 双击重置
+   * ================================================================ */
+  const mouse = { down: false, right: false, x0: 0, y0: 0, panX: 0, panY: 0, rot0: 0, px: 0, py: 0 };
+  const onHud = t => t && t.closest && t.closest('.hud');
+
+  function setupMouse() {
+    addEventListener('pointerdown', e => {
+      if (state.control !== 'mouse' || onHud(e.target)) return;
+      if (e.button === 2) {
+        mouse.right = true; mouse.rot0 = state.rotY; mouse.px = e.clientX; mouse.py = e.clientY;
+        document.body.classList.add('dragging');
+      } else if (e.button === 0) {
+        mouse.down = true; mouse.x0 = e.clientX; mouse.y0 = e.clientY;
+        mouse.panX = state.current.x; mouse.panY = state.current.y;
+        document.body.classList.add('dragging');
+      }
+    });
+    addEventListener('pointermove', e => {
+      if (state.control !== 'mouse') return;
+      if (mouse.right) {
+        state.rotY = clamp(mouse.rot0 + (e.clientX - mouse.px) * 0.008, -1.15, 1.15);
+        if (state.autoRotate) { state.autoRotate = false; $('rot-toggle').checked = false; }
+        return;
+      }
+      if (mouse.down) {
+        const s = worldSpan();
+        const dx = (e.clientX - mouse.x0) / innerWidth * s.w;
+        const dy = (e.clientY - mouse.y0) / innerHeight * s.h;
+        state.target.x = mouse.panX + dx;
+        state.target.y = mouse.panY - dy;
+      }
+    });
+    addEventListener('pointerup', e => {
+      if (e.button === 0) mouse.down = false;
+      if (e.button === 2) mouse.right = false;
+      if (!mouse.down && !mouse.right) document.body.classList.remove('dragging');
+    });
+    addEventListener('wheel', e => {
+      if (state.control !== 'mouse' || onHud(e.target)) return;
+      e.preventDefault();
+      state.target.scale = clamp(state.target.scale * Math.exp(-e.deltaY * 0.0012), 0.45, 3.2);
+    }, { passive: false });
+    addEventListener('dblclick', e => { if (state.control === 'mouse' && !onHud(e.target)) resetView(); });
+    addEventListener('contextmenu', e => { if (state.control === 'mouse') e.preventDefault(); });
+  }
+
+  /* ---------- 控制模式切换 ---------- */
+  function setControl(mode, silent) {
+    state.control = mode;
+    $('mode-gesture').classList.toggle('active', mode === 'gesture');
+    $('mode-mouse').classList.toggle('active', mode === 'mouse');
+    document.body.classList.toggle('mouse-ctl', mode === 'mouse');
+    if (mode === 'mouse') { state.mode = 'IDLE'; document.body.classList.remove('dragging'); }
+    renderHint();
+    refreshTelemetry();
+    if (!silent) {
+      showToast(mode === 'mouse' ? '已切换鼠标控制：左键拖拽移动 · 滚轮缩放 · 右键旋转 · 双击重置' : '已切换手势控制');
+    }
+  }
+  function enableMouseFallback(reason) {
+    setControl('mouse', true);
+    $('banner-txt').textContent = reason;
+    $('banner').classList.add('show');
+  }
+
+  /* ---------- 提示条（随控制模式切换） ---------- */
+  function renderHint() {
+    const el = $('hint');
+    if (state.control === 'mouse') {
+      el.innerHTML = '<span>左键拖拽 · 移动</span><span>滚轮 · 缩放</span><span>右键拖拽 · 旋转</span><span>双击 · 重置</span>';
+    } else {
+      el.innerHTML = '<span>双手张合 · 缩放</span><span>单掌张开 · 移动</span><span>双手捏合 · 精细缩放</span><span>R · 重置</span>';
+    }
+  }
+
+  /* ---------- 遥测文本框（左上，带状态小点） ---------- */
+  function setDot(id, cls) { $(id).className = 'tm-dot' + (cls ? ' ' + cls : ''); }
+  function refreshTelemetry() {
+    setDot('d-cam', state.camReady ? 'on' : (state.camFailed ? 'err' : ''));
+    $('v-cam').textContent = state.camReady ? '在线' : (state.camFailed ? '离线' : '连接中');
+    setDot('d-model', state.modelReady ? 'on' : (state.modelFailed ? 'err' : ''));
+    $('v-model').textContent = state.modelReady ? '就绪' : (state.modelFailed ? '不可用' : '加载中');
+    setDot('d-hands', state.hands.length ? 'on' : '');
+    $('v-hands').textContent = state.hands.length + ' 只手';
+    setDot('d-mode', (state.mode !== 'IDLE' || state.control === 'mouse') ? 'on' : '');
+    $('v-mode').textContent = state.control === 'mouse' ? '鼠标' : (state.mode === 'MOVE' ? '移动' : state.mode === 'ZOOM' ? '缩放' : '待命');
+  }
+
+  /* ---------- 工具：重置 / Toast ---------- */
+  function resetView() {
+    state.target = { x: 0, y: 0.15, scale: 1 };
+    state.current.x = 0;
+    state.current.y = 0.15;
+    state.current.scale = 1;
+    state.rotY = 0;
+    state.mode = 'IDLE';
+    if (state.candlestick) state.candlestick.rotation.y = 0;
+    showToast('视角已重置');
+  }
+  let toastTimer;
+  function showToast(msg) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 3600);
+  }
+
+  /* ---------- UI 绑定 ---------- */
+  $('op-slider').addEventListener('input', e => {
+    state.videoOpacity = e.target.value / 100;
+    video.style.opacity = state.videoOpacity;
+    $('val-op').textContent = e.target.value + '%';
+  });
+  $('holo-slider').addEventListener('input', e => {
+    state.holoIntensity = e.target.value / 100;
+    $('val-holo').textContent = e.target.value + '%';
+  });
+  $('scan-toggle').addEventListener('change', e => { state.scanlines = e.target.checked; });
+  $('skel-toggle').addEventListener('change', e => {
+    state.showSkeleton = e.target.checked;
+    $('landmarks').style.display = state.showSkeleton ? '' : 'none';
+    if (!state.showSkeleton) { const cv = $('landmarks'); cv.getContext('2d').clearRect(0, 0, innerWidth, innerHeight); }
+  });
+  $('rot-toggle').addEventListener('change', e => { state.autoRotate = e.target.checked; });
+  $('mode-gesture').addEventListener('click', () => {
+    $('banner').classList.remove('show');
+    setControl('gesture');
+  });
+  $('mode-mouse').addEventListener('click', () => setControl('mouse'));
+  $('banner-close').addEventListener('click', () => $('banner').classList.remove('show'));
+  $('reset-btn').addEventListener('click', resetView);
+  $('fs-btn').addEventListener('click', () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen().catch(() => showToast('浏览器未允许全屏'));
+  });
+  $('panel-toggle').addEventListener('click', e => {
+    const panel = $('panel');
+    const collapsed = panel.classList.toggle('collapsed');
+    e.currentTarget.setAttribute('aria-expanded', String(!collapsed));
+  });
+  addEventListener('keydown', e => {
+    if (e.key === 'r' || e.key === 'R') resetView();
+    if (e.key === 'm' || e.key === 'M') setControl(state.control === 'gesture' ? 'mouse' : 'gesture');
+  });
+
+  /* ---------- 启动 ---------- */
+  function boot() {
+    sizeLandmarkCanvas();
+    setupMouse();
+    renderHint();
+    refreshTelemetry();
+    initCamera();
+    initHandTracking();
+    requestAnimationFrame(animate);
+    (function loop() { detect(); requestAnimationFrame(loop); })();
+    setInterval(refreshTelemetry, 500);
+  }
+  boot();
+  };
+  </script>
 </body>
 </html>
