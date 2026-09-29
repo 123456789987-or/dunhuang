@@ -2,8 +2,6 @@
 
 基于 **MediaPipe 手势识别 + Three.js** 的 3D 全息烛台交互界面。烛台悬浮在操作者面前，摄像头画面全屏作为背景，通过双手手势实时缩放与移动；摄像头不可用时自动切换鼠标控制。
 
-![预览](assets/preview.jpg)
-
 ## 功能特性
 
 - 摄像头画面全屏展示，置于**纯黑底**之上，**视频透明度（可见度）可调**——调到 0% 即纯黑背景 + 全息烛台
@@ -48,17 +46,6 @@
 - **MediaPipe Hands**（legacy solutions）：21 点手部关键点实时跟踪，模型与 WASM 随 npm 包分发，可走国内镜像
 - **Three.js r128**：WebGL 全息渲染（自定义 ShaderMaterial，加色混合）
 - **原生 JavaScript**：无构建步骤，单文件自包含
-
-## 目录结构
-
-```
-holographic-candlestick/
-├── index.html        # 单文件应用（HTML + CSS + JS 内联）
-├── assets/
-│   └── preview.jpg   # 预览图
-├── _backup/          # 旧版备份（非交付产物）
-└── README.md
-```
 
 ## 部署到 GitHub Pages
 
