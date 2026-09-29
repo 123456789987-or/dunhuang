@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Holographic Candlestick · 全息烛台</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🕯</text></svg>">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#000;
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    color:#e8d9b8; }
+  #webcam { position:fixed; inset:0; width:100%; height:100%; object-fit:cover; transform:scaleX(-1); opacity:0.55; z-index:1; }
+  #dim-overlay { position:fixed; inset:0; z-index:2; background:#000; pointer-events:none; opacity:0.45; }
+  #scene-canvas { position:fixed; inset:0; z-index:3; display:block; }
+  #hand-canvas { position:fixed; inset:0; z-index:4; pointer-events:none; }
+  .scanlines { position:fixed; inset:0; z-index:5; pointer-events:none; background:repeating-linear-gradient(0deg, transparent 0px, transparent 2px, rgba(255,200,120,0.015) 3px, transparent 4px); mix-blend-mode:screen; }
+  .topbar { position:fixed; top:12px; left:14px; z-index:10; user-select:none; pointer-events:none; }
+  .topbar .title { font-size:9px; letter-spacing:0.3em; font-weight:600; color:#f0c878; text-transform:uppercase; text-shadow:0 0 10px rgba(240,180,80,0.4); }
+  .topbar .sub { font-size:7px; letter-spacing:0.18em; color:rgba(232,217,184,0.4); margin-top:2px; text-transform:uppercase; }
+  .status { position:fixed; top:14px; right:14px; z-index:10; display:flex; align-items:center; gap:5px; font-size:7px; letter-spacing:0.14em; color:rgba(232,217,184,0.55); user-select:none; pointer-events:none; }
+  .status .dot { width:5px; height:5px; border-radius:50%; background:#444; transition:background .2s, box-shadow .2s; }
+  .status.active .dot { background:#7fe08a; box-shadow:0 0 8px rgba(127,224,138,0.8); }
+  .status.mode { color:#f0c878; }
+  .hints { position:fixed; left:50%; bottom:64px; transform:translateX(-50%); z-index:10; font-size:7px; letter-spacing:0.22em; color:rgba(232,217,184,0.35); text-transform:uppercase; user-select:none; pointer-events:none; white-space:nowrap; }
+  .panel { position:fixed; left:50%; bottom:14px; transform:translateX(-50%); z-index:10; display:flex; align-items:center; gap:12px; padding:7px 12px; background:rgba(12,9,6,0.65); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); border:1px solid rgba(240,200,120,0.15); border-radius:10px; }
+  .panel .group { display:flex; align-items:center; gap:7px; }
+  .panel label { font-size:7px; letter-spacing:0.14em; color:rgba(232,217,184,0.5); text-transform:uppercase; white-space:nowrap; }
+  .panel input[type=range] { -webkit-appearance:none; appearance:none; width:100px; height:2px; border-radius:2px; background:linear-gradient(90deg,#2a2214,#f0c878); outline:none; cursor:pointer; }
+  .panel input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:9px; height:9px; border-radius:50%; background:#f0c878; border:2px solid #141008; box-shadow:0 0 6px rgba(240,200,120,0.6); cursor:pointer; }
+  .panel button { font-family:inherit; font-size:7px; letter-spacing:0.12em; font-weight:600; color:#1a1208; background:linear-gradient(180deg,#f0d08a,#c9983a); border:none; border-radius:5px; padding:5px 10px; cursor:pointer; text-transform:uppercase; transition:transform .12s, box-shadow .12s; }
+  .panel button:hover { transform:translateY(-1px); box-shadow:0 3px 10px rgba(240,180,80,0.3); }
+  .divider { width:1px; height:18px; background:rgba(240,200,120,0.12); }
+  #toast { position:fixed; left:50%; top:18px; transform:translateX(-50%); z-index:20; padding:5px 12px; border-radius:6px; background:rgba(20,10,10,0.8); border:1px solid rgba(255,120,80,0.4); color:#ffb08a; font-size:9px; letter-spacing:0.08em; opacity:0; transition:opacity .3s; pointer-events:none; }
+  #toast.show { opacity:1; }
+  @media (max-width:640px) { .panel{gap:8px;padding:5px 9px;} .panel input[type=range]{width:70px;} .hints{font-size:6px;bottom:58px;} }
+</style>
+</head>
+<body>
+  <video id="webcam" autoplay playsinline muted></video>
+  <div id="dim-overlay"></div>
+  <canvas id="hand-canvas"></canvas>
+  <div class="scanlines"></div>
+  <div class="topbar"><div class="title">Holographic Candlestick</div><div class="sub">Mediapipe · Three.js · Gesture</div></div>
+  <div class="status" id="status"><span class="dot"></span><span id="status-text">初始化</span></div>
+  <div class="hints">张合手掌 · 缩放烛台 &nbsp;|&nbsp; 移动手掌 · 平移烛台</div>
+  <div class="panel"><div class="group"><label>视频可见度</label><input type="range" id="opacity" min="0" max="100" value="55"></div><div class="divider"></div><button id="reset-btn">复位</button></div>
+  <div id="toast"></div>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1640029074/camera_utils.min.js"></script>
+<script>
+const renderer = new THREE.WebGLRenderer({antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.setSize(window.innerWidth,window.innerHeight);
+renderer.setClearColor(0x000000,0);
+document.body.appendChild(renderer.domElement);
+renderer.domElement.id='scene-canvas';
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45,window.innerWidth/window.innerHeight,0.1,100);
+camera.position.set(0,0.15,4.4);camera.lookAt(0,0,0);
+scene.add(new THREE.AmbientLight(0x6a5a40,0.7));
+scene.add(new THREE.HemisphereLight(0x998866,0x221108,0.45));
+const flameLight = new THREE.PointLight(0xffaa44,2.2,8,2);scene.add(flameLight);
+const fill = new THREE.PointLight(0xff8833,0.6,5,2);fill.position.set(0,0.5,1.5);scene.add(fill);
+const rim = new THREE.DirectionalLight(0x6688cc,0.35);rim.position.set(-2,3,-3);scene.add(rim);
+function makeRadialTexture(i,o){const c=document.createElement('canvas');c.width=c.height=128;const x=c.getContext('2d');const g=x.createRadialGradient(64,64,0,64,64,64);g.addColorStop(0,i);g.addColorStop(0.4,o);g.addColorStop(1,'rgba(0,0,0,0)');x.fillStyle=g;x.fillRect(0,0,128,128);return new THREE.CanvasTexture(c);}
+const glowTex=makeRadialTexture('rgba(255,220,140,1)','rgba(255,150,50,0.4)');
+const holderGroup=new THREE.Group();
+const brassMat=new THREE.MeshStandardMaterial({color:0x9a7440,metalness:0.75,roughness:0.42});
+const brassDark=new THREE.MeshStandardMaterial({color:0x5e4426,metalness:0.65,roughness:0.55});
+const profile=[[0,0],[0.44,0],[0.49,0.025],[0.48,0.055],[0.43,0.095],[0.36,0.15],[0.28,0.215],[0.21,0.28],[0.17,0.34],[0.15,0.39],[0.14,0.43],[0.15,0.46],[0.22,0.49],[0.34,0.515],[0.42,0.545],[0.44,0.575],[0.42,0.6],[0.36,0.62],[0.26,0.635],[0.16,0.645],[0.12,0.665],[0.1,0.7],[0.11,0.735],[0.15,0.77],[0.19,0.82],[0.2,0.87],[0.18,0.92],[0.13,0.96],[0.1,0.99],[0.09,1.03],[0.1,1.06],[0.08,1.1],[0.09,1.13],[0.08,1.16],[0.12,1.19],[0.19,1.22],[0.23,1.25],[0.24,1.28],[0.22,1.305],[0.16,1.32],[0.1,1.33],[0.085,1.345],[0.085,1.38]];
+const holderGeo=new THREE.LatheGeometry(profile.map(p=>new THREE.Vector2(p[0],p[1])),64);
+holderGroup.add(new THREE.Mesh(holderGeo,brassMat));
+const footRing=new THREE.Mesh(new THREE.TorusGeometry(0.46,0.012,8,64),brassDark);footRing.rotation.x=Math.PI/2;footRing.position.y=0.03;holderGroup.add(footRing);
+const candleMat=new THREE.MeshStandardMaterial({color:0xf3e2b5,roughness:0.7,metalness:0});
+const candleH=0.58;
+const candle=new THREE.Mesh(new THREE.CylinderGeometry(0.088,0.095,candleH,24),candleMat);candle.position.y=1.38+candleH/2;holderGroup.add(candle);
+const candleTop=new THREE.Mesh(new THREE.CircleGeometry(0.085,24),new THREE.MeshStandardMaterial({color:0xe8d49a,roughness:0.85}));candleTop.rotation.x=-Math.PI/2;candleTop.position.y=1.38+candleH+0.001;holderGroup.add(candleTop);
+const wick=new THREE.Mesh(new THREE.CylinderGeometry(0.006,0.006,0.05,6),new THREE.MeshBasicMaterial({color:0x1a1208}));wick.position.y=1.38+candleH+0.02;holderGroup.add(wick);
+const flameBaseY=1.38+candleH+0.06;
+const flameOuter=new THREE.Mesh(new THREE.ConeGeometry(0.045,0.2,16),new THREE.MeshBasicMaterial({color:0xff9933,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false}));flameOuter.position.y=flameBaseY+0.08;holderGroup.add(flameOuter);
+const flameInner=new THREE.Mesh(new THREE.ConeGeometry(0.022,0.12,12),new THREE.MeshBasicMaterial({color:0xffee99,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false}));flameInner.position.y=flameBaseY+0.05;holderGroup.add(flameInner);
+const flameGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:0xffbb55,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false}));flameGlow.scale.set(0.55,0.55,1);flameGlow.position.y=flameBaseY+0.08;holderGroup.add(flameGlow);
+const holoRing=new THREE.Mesh(new THREE.RingGeometry(0.55,0.62,64),new THREE.MeshBasicMaterial({color:0xf0a848,transparent:true,opacity:0.25,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));holoRing.rotation.x=-Math.PI/2;holoRing.position.y=-0.02;holderGroup.add(holoRing);
+const holoDisc=new THREE.Mesh(new THREE.CircleGeometry(0.55,64),new THREE.MeshBasicMaterial({map:glowTex,color:0xcc8833,transparent:true,opacity:0.18,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));holoDisc.rotation.x=-Math.PI/2;holoDisc.position.y=-0.025;holderGroup.add(holoDisc);
+const HOLDER_Y_OFFSET=-1.05;holderGroup.position.y=HOLDER_Y_OFFSET;scene.add(holderGroup);
+flameLight.position.set(0,flameBaseY+HOLDER_Y_OFFSET,0);
+const state={pos:new THREE.Vector3(0,0,0),targetPos:new THREE.Vector3(0,0,0),scale:1,targetScale:1,smoothX:0.5,smoothY:0.5,smoothOpen:1.5};
+function palmCenter(lm){const i=[0,5,9,13,17];let x=0,y=0;i.forEach(j=>{x+=lm[j].x;y+=lm[j].y});return{x:1-x/i.length,y:y/i.length};}
+function handOpenness(lm){const w=lm[0];const ps=Math.hypot(lm[9].x-w.x,lm[9].y-w.y);const t=[8,12,16,20];let s=0;t.forEach(id=>{s+=Math.hypot(lm[id].x-w.x,lm[id].y-w.y)});return(s/t.length)/ps;}
+function opennessToScale(o){const t=Math.max(0,Math.min(1,(o-1.0)/(2.1-1.0)));return 0.5+t*1.7;}
+const video=document.getElementById('webcam');
+const statusEl=document.getElementById('status');
+const statusText=document.getElementById('status-text');
+const handCanvas=document.getElementById('hand-canvas');
+const hctx=handCanvas.getContext('2d');
+function sizeHandCanvas(){handCanvas.width=window.innerWidth;handCanvas.height=window.innerHeight;}
+sizeHandCanvas();
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._timer);t._timer=setTimeout(()=>t.classList.remove('show'),2400);}
+const HC=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+let hands=null;
+try{hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${f}`});hands.setOptions({maxNumHands:2,modelComplexity:1,minDetectionConfidence:0.6,minTrackingConfidence:0.5});}catch(e){statusText.textContent='手势库不可用';}
+if(hands)hands.onResults(res=>{const lms=res.multiHandLandmarks||[];hctx.clearRect(0,0,handCanvas.width,handCanvas.height);function dd(p,c,r){hctx.beginPath();hctx.arc(p.x*handCanvas.width,p.y*handCanvas.height,r,0,Math.PI*2);hctx.fillStyle=c;hctx.shadowColor=c;hctx.shadowBlur=10;hctx.fill();hctx.shadowBlur=0;}
+function ds(lm){hctx.strokeStyle='rgba(240,200,120,0.35)';hctx.lineWidth=1;hctx.beginPath();HC.forEach(([a,b])=>{const pa=lm[a],pb=lm[b];hctx.moveTo((1-pa.x)*handCanvas.width,pa.y*handCanvas.height);hctx.lineTo((1-pb.x)*handCanvas.width,pb.y*handCanvas.height)});hctx.stroke();lm.forEach(p=>dd({x:1-p.x,y:p.y},'rgba(240,200,120,0.5)',2));}
+if(lms.length>=1){const lm=lms[0];ds(lm);const palm=palmCenter(lm);const op=handOpenness(lm);state.smoothX+=(palm.x-state.smoothX)*0.35;state.smoothY+=(palm.y-state.smoothY)*0.35;state.smoothOpen+=(op-state.smoothOpen)*0.25;state.targetPos.x=(state.smoothX-0.5)*4.2;state.targetPos.y=-(state.smoothY-0.5)*3.0;state.targetPos.x=Math.max(-2.2,Math.min(2.2,state.targetPos.x));state.targetPos.y=Math.max(-1.4,Math.min(1.6,state.targetPos.y));state.targetScale=opennessToScale(state.smoothOpen);state.targetScale=Math.max(0.4,Math.min(2.5,state.targetScale));const f=state.smoothOpen<1.35,o=state.smoothOpen>1.7;statusText.textContent=f?'握拳 · 缩小':o?'张开 · 放大':'跟踪中 · 移动手掌';statusEl.classList.add('active','mode');dd(palm,'rgba(127,224,138,0.9)',8);}else{state.targetPos.set(0,0,0);state.targetScale=1;statusText.textContent='未检测到手';statusEl.classList.remove('active','mode');}});
+if(hands&&typeof Camera!=='undefined'){const cu=new Camera(video,{onFrame:async()=>{await hands.send({image:video})},width:1280,height:720});cu.start().then(()=>{statusText.textContent='摄像头就绪';}).catch(e=>{toast('无法访问摄像头：请允许摄像头权限');statusText.textContent='摄像头不可用';});}
+const dimOverlay=document.getElementById('dim-overlay');
+document.getElementById('opacity').addEventListener('input',e=>{dimOverlay.style.opacity=(1-e.target.value/100).toFixed(2);});
+document.getElementById('reset-btn').addEventListener('click',()=>{state.targetPos.set(0,0,0);state.targetScale=1;state.smoothX=0.5;state.smoothY=0.5;state.smoothOpen=1.5;toast('视角已复位');});
+const clock=new THREE.Clock();
+function animate(){requestAnimationFrame(animate);const t=clock.getElapsedTime();const fl=1+Math.sin(t*11)*0.12+Math.sin(t*23)*0.08+Math.sin(t*37)*0.05;flameLight.intensity=2.0*fl;flameOuter.scale.set(1+Math.sin(t*15)*0.06,1+Math.sin(t*13)*0.1,1+Math.sin(t*15)*0.06);flameInner.scale.set(1+Math.sin(t*19)*0.08,1+Math.sin(t*17)*0.12,1+Math.sin(t*19)*0.08);flameGlow.material.opacity=0.55+Math.sin(t*11)*0.12;flameGlow.scale.set(0.5+Math.sin(t*13)*0.05,0.5+Math.sin(t*13)*0.05,1);state.pos.lerp(state.targetPos,0.12);state.scale+=(state.targetScale-state.scale)*0.12;const bob=Math.sin(t*1.3)*0.03;holderGroup.position.x=state.pos.x;holderGroup.position.y=HOLDER_Y_OFFSET+state.pos.y+bob;holderGroup.position.z=state.pos.z;holderGroup.scale.setScalar(state.scale);holoRing.material.opacity=0.18+Math.sin(t*2.2)*0.08;holoDisc.material.opacity=0.12+Math.sin(t*2.2)*0.05;renderer.render(scene,camera);}
+animate();
+window.addEventListener('resize',()=>{camera.aspect=window.innerWidth/window.innerHeight;camera.updateProjectionMatrix();renderer.setSize(window.innerWidth,window.innerHeight);sizeHandCanvas();});
+</script>
+</body>
+</html>
